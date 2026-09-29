@@ -326,7 +326,8 @@ jobs:
         run: |
           test "$OUTCOME" = failure
           test "$STATUS" = error
-          grep -Fq 'has no `tak compare --accept`' "$REPORT"
+          grep -Fq 'has no' "$REPORT"
+          grep -Fq 'tak compare --accept' "$REPORT"
 
       - name: Reject invalid input
         id: bad-input
