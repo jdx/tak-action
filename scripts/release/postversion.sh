@@ -30,12 +30,22 @@ git push origin "v$VERSION" || echo "Tag v$VERSION already exists on remote"
 
 # Pre-v1, the floating v0 tag moves across breaking changes too. The README
 # says to pin a full SHA or an exact tag for that reason.
-git tag "v$MAJOR_VERSION" -f
-if ! git push origin "v$MAJOR_VERSION" -f; then
-  echo "Failed to push v$MAJOR_VERSION, fetching and retrying"
-  git fetch origin "refs/tags/v$MAJOR_VERSION:refs/tags/v$MAJOR_VERSION" -f
+#
+# Only forward: a rerun of an older release's workflow recreates its exact tag
+# and release if they are missing, but must not drag vN back from a newer
+# release. The remote's tags decide, since this checkout may predate them.
+git fetch --quiet --tags --force origin
+highest="$(git tag --list "v$MAJOR_VERSION.*.*" | grep -E "^v$MAJOR_VERSION\.[0-9]+\.[0-9]+$" | sort -V | tail -1)"
+if [ "$highest" != "v$VERSION" ]; then
+  echo "v$VERSION is not the newest v$MAJOR_VERSION release ($highest is); leaving v$MAJOR_VERSION alone"
+else
   git tag "v$MAJOR_VERSION" -f
-  git push origin "v$MAJOR_VERSION" -f
+  if ! git push origin "v$MAJOR_VERSION" -f; then
+    echo "Failed to push v$MAJOR_VERSION, fetching and retrying"
+    git fetch origin "refs/tags/v$MAJOR_VERSION:refs/tags/v$MAJOR_VERSION" -f
+    git tag "v$MAJOR_VERSION" -f
+    git push origin "v$MAJOR_VERSION" -f
+  fi
 fi
 
 if gh release view "v$VERSION" >/dev/null 2>&1; then
