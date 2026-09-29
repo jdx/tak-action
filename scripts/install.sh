@@ -95,6 +95,10 @@ install_valgrind() {
 
 if [ "$(bool install "$INPUT_INSTALL")" = true ]; then
   install_tak
+elif [ "${INPUT_MODE:-}" = prepare ]; then
+  # prepare runs only git. With install: false, tak typically arrives in a
+  # later step (mise-action reading mise.toml), after the credentials are gone.
+  echo "install is false; prepare does not need tak"
 else
   use_existing_tak
 fi

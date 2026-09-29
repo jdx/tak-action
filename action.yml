@@ -182,6 +182,7 @@ runs:
       if: inputs.mode != 'comment'
       shell: bash
       env:
+        INPUT_MODE: ${{ inputs.mode }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_INSTALL: ${{ inputs.install }}
         INPUT_INSTALL_VALGRIND: ${{ inputs.install-valgrind }}

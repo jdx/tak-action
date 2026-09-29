@@ -144,20 +144,22 @@ an instruction count rises beyond the gate (`[gate].pct` in `tak.toml`, or `gate
 nothing was compared, or when the build or the comparison fails.
 
 If the build needs another action, such as `jdx/mise-action` reading the pull request's
-`mise.toml`, split the comparison around it so the trusted half still runs first:
+`mise.toml`, split the comparison around it so the trusted half still runs first. When
+`mise.toml` pins tak, `install: false` uses that tak instead of downloading a second one, so
+the version that measures and the version that compares are the same:
 
 ```yaml
       - uses: jdx/tak-action@v0.1.0
         with:
           mode: prepare
-          version: 0.0.13
+          install: false # prepare runs only git; tak comes from mise.toml
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       - uses: jdx/tak-action@v0.1.0
         with:
           mode: compare
-          version: 0.0.13
+          install: false
           run: mise run perf:record
 ```
 
