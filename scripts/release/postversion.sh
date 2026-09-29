@@ -15,6 +15,16 @@ MAJOR_VERSION="${VERSION%%.*}"
 # credential helper to authenticate with GITHUB_TOKEN.
 gh auth setup-git
 
+# Tag only what is on main. release.yml checks out the release PR's merge
+# commit; if that is not on main (a merge to another branch, or a checkout of
+# the synthetic merge ref), refuse rather than tag a commit users can't reach.
+git fetch --quiet origin main
+head_sha="$(git rev-parse HEAD)"
+git merge-base --is-ancestor "$head_sha" origin/main || {
+  echo "HEAD $head_sha is not on main; refusing to tag it" >&2
+  exit 1
+}
+
 git tag "v$VERSION" || echo "Tag v$VERSION already exists locally"
 git push origin "v$VERSION" || echo "Tag v$VERSION already exists on remote"
 

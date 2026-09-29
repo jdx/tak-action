@@ -1,9 +1,10 @@
 name: test-comment
 
 # Comment mode against this repository's own pull requests, using the report
-# the test workflow uploads (a deliberate regression in the fixture). This is
-# the same shape a project uses: the untrusted job measures, this trusted job
-# posts.
+# the test workflow uploads: the fixture's deliberate regression, relabelled
+# in test.yml with the pull request's head commit so that comment mode's
+# commit check accepts it. This is the same shape a project uses: the
+# untrusted job measures, this trusted job posts.
 #
 # workflow_run always runs this file as it is on the default branch, so it
 # cannot be exercised by the pull request that adds or changes it.

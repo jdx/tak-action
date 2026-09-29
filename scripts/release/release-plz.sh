@@ -69,9 +69,18 @@ git checkout -B release
 git commit -m "chore: release $version"
 git push origin release --force
 
-if gh pr create --title "chore: release $version" --body "$changelog" --label release; then
-  echo "Created the release PR"
+# release.yml acts only on a merged PR carrying this label. Idempotent, so a
+# new repository gets it and an existing one is unchanged.
+gh label create release --force --color 0E8A16 --description "Release pull request opened by release-plz"
+
+# Decide between create and edit by asking, rather than by whether create
+# failed: create also fails for reasons that have nothing to do with an
+# existing PR, and editing then would hide them.
+existing_pr="$(gh pr list --head release --base main --state open --json number --jq '.[0].number // empty')"
+if [ -n "$existing_pr" ]; then
+  gh pr edit "$existing_pr" --title "chore: release $version" --body "$changelog" --add-label release
+  echo "Updated release PR #$existing_pr"
 else
-  gh pr edit release --title "chore: release $version" --body "$changelog"
-  echo "Updated the release PR"
+  gh pr create --head release --base main --title "chore: release $version" --body "$changelog" --label release
+  echo "Created the release PR"
 fi

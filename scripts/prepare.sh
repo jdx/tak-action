@@ -46,16 +46,6 @@ enter_working_directory
 
 head=$(git rev-parse --verify 'HEAD^{commit}')
 
-# A prepare-mode step earlier in this job already did the work for this
-# checkout. Compare mode consumes that state and removes it, so a second
-# comparison in the same job prepares afresh.
-if [ "$(state_get PREPARED_WD)" = "$PWD" ] && [ "$(state_get HEAD_SHA)" = "$head" ]; then
-  echo "Already prepared by an earlier step in this job"
-  # Again anyway: a step in between may have checked out afresh.
-  strip_credentials
-  exit 0
-fi
-
 # The synthetic merge commit actions/checkout picks by default for a
 # pull_request event exists only for this run and moves whenever the base
 # branch does. A number recorded against it describes a commit nobody can
@@ -63,6 +53,39 @@ fi
 if [ -n "${INPUT_HEAD_SHA:-}" ] && [ "$head" != "$INPUT_HEAD_SHA" ]; then
   die "HEAD is $head but the pull request head is $INPUT_HEAD_SHA. Check out the branch commit rather than the merge commit: actions/checkout with ref: \${{ github.event.pull_request.head.sha }}"
 fi
+
+# The comparison this invocation asks for, resolved the same way whichever
+# mode runs it, so a prepare step and the compare step after it can be
+# checked against each other.
+requested_base_ref=${INPUT_BASE_REF:-}
+if [ -z "${INPUT_BASE:-}" ] && [ -z "$requested_base_ref" ] && [ -f "${GITHUB_EVENT_PATH:-}" ]; then
+  requested_base_ref=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH")
+fi
+request="base=${INPUT_BASE:-} base-ref=$requested_base_ref head-sha=${INPUT_HEAD_SHA:-}"
+
+# A prepare-mode step earlier in this job already did the work for this
+# checkout. Compare mode consumes that state and removes it, so a second
+# comparison in the same job prepares afresh. Reused only for the same
+# request: silently keeping the earlier base would report a comparison other
+# than the one asked for.
+if [ "$(state_get PREPARED_WD)" = "$PWD" ] && [ "$(state_get HEAD_SHA)" = "$head" ]; then
+  prepared_request=$(state_get REQUEST)
+  if [ "$prepared_request" != "$request" ]; then
+    # Invalidated first, so the compare step reports an error instead of
+    # carrying on with the earlier base.
+    state_set PREPARED_WD ""
+    die "this step asks for '$request' but the prepare step before it resolved '$prepared_request'; pass the same base, base-ref and head-sha to both"
+  fi
+  echo "Already prepared by an earlier step in this job"
+  # Again anyway: a step in between may have checked out afresh.
+  strip_credentials
+  exit 0
+fi
+
+# Whatever an earlier prepare in this job resolved no longer applies. Cleared
+# before anything can fail, so a failure below leaves the compare step with
+# nothing to reuse rather than a stale base.
+state_set PREPARED_WD ""
 
 token=${INPUT_TOKEN:-}
 mask_token "$token"
@@ -84,10 +107,7 @@ if [ -n "${INPUT_BASE:-}" ]; then
   base=$(git rev-parse --verify "${INPUT_BASE}^{commit}") || die "base $INPUT_BASE is not a commit"
   base_ref=""
 else
-  base_ref=${INPUT_BASE_REF:-}
-  if [ -z "$base_ref" ] && [ -f "${GITHUB_EVENT_PATH:-}" ]; then
-    base_ref=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH")
-  fi
+  base_ref=$requested_base_ref
   [ -n "$base_ref" ] ||
     die "no base to compare against: this is not a pull_request event, so set base-ref (a branch) or base (a commit)"
   git check-ref-format --branch "$base_ref" >/dev/null 2>&1 || die "base-ref '$base_ref' is not a valid branch name"
@@ -135,6 +155,7 @@ state_set PREPARED_WD "$PWD"
 state_set HEAD_SHA "$head"
 state_set BASE_SHA "$base"
 state_set BASE_REF "$base_ref"
+state_set REQUEST "$request"
 output head-sha "$head"
 output base-sha "$base"
 echo "Comparing $head against $base${base_ref:+ (merge base with origin/$base_ref)}"

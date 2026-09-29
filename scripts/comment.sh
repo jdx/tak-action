@@ -130,9 +130,15 @@ echo "status=$status conclusion=$conclusion"
 # claim can at most choose between pull requests that pass that test.
 prs=$(jq -r --arg sha "$head_sha" '.workflow_run.pull_requests[]? | select(.head.sha == $sha) | .number' "$event")
 if [ -z "$prs" ] && [ -n "$head_repo" ] && [ -n "$head_branch" ]; then
+  # Not fatal: the check run below needs only the commit, and is the part
+  # that gates, so a failed lookup should cost the comment and nothing more.
   prs=$(gh api --method GET "repos/$repo/pulls" -f state=open -f head="${head_repo%%/*}:$head_branch" --paginate |
     jq -r --arg sha "$head_sha" --arg repo "$head_repo" \
-      '.[] | select(.head.sha == $sha and .head.repo.full_name == $repo) | .number')
+      '.[] | select(.head.sha == $sha and .head.repo.full_name == $repo) | .number') ||
+    {
+      warn "could not list pull requests for $head_repo:$head_branch; not commenting"
+      prs=""
+    }
 fi
 pr=""
 if [ -n "$prs" ]; then
@@ -187,6 +193,7 @@ fi
 # the pull request, so the result reaches the pull request as a check run on
 # its head commit.
 if [ "$(bool check "$INPUT_CHECK")" = true ]; then
+  check_file="$TAK_ACTION_DIR/check.json"
   jq -n \
     --arg name "$INPUT_CHECK_NAME" \
     --arg head_sha "$head_sha" \
@@ -194,9 +201,23 @@ if [ "$(bool check "$INPUT_CHECK")" = true ]; then
     --arg details_url "$run_url" \
     --arg title "$title" \
     --rawfile summary "$body_file" \
-    '{name: $name, head_sha: $head_sha, status: "completed", conclusion: $conclusion,
-      details_url: $details_url, output: {title: $title, summary: $summary}}' |
-    gh api --method POST "repos/$repo/check-runs" --input - --jq .html_url
+    '{name: $name, head_sha: $head_sha, external_id: "tak-action", status: "completed",
+      conclusion: $conclusion, details_url: $details_url,
+      output: {title: $title, summary: $summary}}' >"$check_file"
+  # One check per name per commit. A rerun of the compare workflow for the
+  # same commit updates the check this action created before, rather than
+  # stacking a second result with the same name beside it. Only checks this
+  # action created count (the GitHub Actions app, marked with external_id),
+  # so a workflow job or another tool that shares the name is left alone.
+  existing_check=$(gh api --method GET "repos/$repo/commits/$head_sha/check-runs" \
+    -f check_name="$INPUT_CHECK_NAME" -f filter=latest --paginate |
+    jq -r '.check_runs[] | select(.app.slug == "github-actions" and .external_id == "tak-action") | .id' | head -n1) || existing_check=""
+  if [ -n "$existing_check" ]; then
+    jq 'del(.head_sha)' "$check_file" |
+      gh api --method PATCH "repos/$repo/check-runs/$existing_check" --input - --jq .html_url
+  else
+    gh api --method POST "repos/$repo/check-runs" --input - --jq .html_url <"$check_file"
+  fi
 fi
 
 {

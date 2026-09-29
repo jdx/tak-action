@@ -122,9 +122,7 @@ jobs:
           base-ref: main
           head-sha: ${{ steps.slow.outputs.sha }}
           fail-on-regression: "false"
-          # The name test-comment.yml reads: a regression makes the more
-          # interesting comment.
-          artifact-name: tak-report
+          artifact-name: tak-report-regressed
 
       - name: Check the regression was reported
         env:
@@ -133,6 +131,35 @@ jobs:
         run: |
           test "$STATUS" = regressed
           grep -q 'benchmark(s) above the' "$REPORT"
+
+      # For test-comment.yml, which runs comment mode against this pull
+      # request. Comment mode accepts a report only for the commit the
+      # triggering run was for, and the report above is for a fixture commit,
+      # so this test-only copy names the pull request's head instead. The
+      # action itself has no such override: in a real project the compare
+      # job measures the pull request's own head.
+      - name: Build the self-test report
+        if: github.event_name == 'pull_request'
+        env:
+          REPORT: ${{ steps.regressed.outputs.report }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          out="$RUNNER_TEMP/self-test-report"
+          cp -r "$(dirname "$REPORT")" "$out"
+          echo "$PR_HEAD_SHA" > "$out/head-sha"
+          echo "$PR_NUMBER" > "$out/pr-number"
+
+      - name: Upload the self-test report
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # The name test-comment.yml reads.
+          name: tak-report
+          path: ${{ runner.temp }}/self-test-report
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: true
 
       - name: Compare with the default gate, expecting a failure
         id: gated
