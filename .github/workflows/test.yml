@@ -245,6 +245,31 @@ jobs:
           head-sha: ${{ steps.fixture.outputs.base }}
           artifact-name: tak-report-wrong-head
 
+      # A failed prepare must not leave an earlier prepare's state for the
+      # compare step (which runs after failures) to reuse.
+      - name: Prepare correctly
+        uses: ./
+        with:
+          mode: prepare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+
+      - name: Then compare the wrong commit
+        id: stale
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.fixture.outputs.base }}
+          measure: "false"
+          fail-on-nothing-compared: "false"
+          artifact-name: tak-report-stale
+
       - name: Run a failing build
         id: failing-build
         continue-on-error: true
@@ -258,16 +283,20 @@ jobs:
           run: exit 3
           artifact-name: tak-report-failing-build
 
-      - name: Check both failed as errors, with a report
+      - name: Check each failed as an error, with a report
         env:
           WRONG_OUTCOME: ${{ steps.wrong-head.outcome }}
           WRONG_STATUS: ${{ steps.wrong-head.outputs.status }}
+          STALE_OUTCOME: ${{ steps.stale.outcome }}
+          STALE_STATUS: ${{ steps.stale.outputs.status }}
           BUILD_OUTCOME: ${{ steps.failing-build.outcome }}
           BUILD_STATUS: ${{ steps.failing-build.outputs.status }}
           BUILD_REPORT: ${{ steps.failing-build.outputs.report }}
         run: |
           test "$WRONG_OUTCOME" = failure
           test "$WRONG_STATUS" = error
+          test "$STALE_OUTCOME" = failure
+          test "$STALE_STATUS" = error
           test "$BUILD_OUTCOME" = failure
           test "$BUILD_STATUS" = error
           grep -q 'exited with status 3' "$BUILD_REPORT"

@@ -42,6 +42,18 @@ strip_credentials() {
   fi
 }
 
+# Any failure in this step invalidates what an earlier prepare in the job
+# resolved. Otherwise a compare step, which runs even after this one fails,
+# would reuse a base and head that this invocation never checked.
+invalidate_on_failure() {
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    state_set PREPARED_WD ""
+  fi
+  return "$rc"
+}
+trap invalidate_on_failure EXIT
+
 enter_working_directory
 
 head=$(git rev-parse --verify 'HEAD^{commit}')
@@ -71,9 +83,6 @@ request="base=${INPUT_BASE:-} base-ref=$requested_base_ref head-sha=${INPUT_HEAD
 if [ "$(state_get PREPARED_WD)" = "$PWD" ] && [ "$(state_get HEAD_SHA)" = "$head" ]; then
   prepared_request=$(state_get REQUEST)
   if [ "$prepared_request" != "$request" ]; then
-    # Invalidated first, so the compare step reports an error instead of
-    # carrying on with the earlier base.
-    state_set PREPARED_WD ""
     die "this step asks for '$request' but the prepare step before it resolved '$prepared_request'; pass the same base, base-ref and head-sha to both"
   fi
   echo "Already prepared by an earlier step in this job"
