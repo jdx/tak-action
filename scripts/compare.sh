@@ -40,16 +40,52 @@ else
   if [ -n "${INPUT_GATE_PCT:-}" ]; then
     args+=(--gate-pct "$INPUT_GATE_PCT")
   fi
+
+  # One benchmark name per line, each passed whole as its own --accept:
+  # names are unrestricted, so nothing is split or trimmed. Only wholly empty
+  # lines are dropped, which a YAML block scalar leaves at the end.
+  accept=()
+  while IFS= read -r name || [ -n "$name" ]; do
+    [ -z "$name" ] || accept+=("$name")
+  done <<<"${INPUT_ACCEPT:-}"
+  accept_unsupported=false
+  if [ "${#accept[@]}" -gt 0 ]; then
+    if tak compare --help 2>/dev/null | grep -Eq -- '(^|[[:space:]])--accept([[:space:]=<]|$)'; then
+      for name in "${accept[@]}"; do
+        args+=(--accept "$name")
+      done
+    else
+      accept_unsupported=true
+    fi
+  fi
   args+=("$base")
 
-  # No token: this runs after the pull request's code has. tak refreshes the
-  # notes from origin, and when that unauthenticated fetch fails (a private
-  # repository) it falls back to the notes the prepare step already fetched.
-  set +e
-  GIT_TERMINAL_PROMPT=0 tak "${args[@]}" >"$report" 2>"$TAK_ACTION_DIR/compare.err"
-  rc=$?
-  set -e
-  cat "$TAK_ACTION_DIR/compare.err" >&2
+  # Off unless this workflow turns it on. tak.toml comes from the checkout
+  # under test, so a pull request could otherwise enable Tak-Accept trailers
+  # in its own commits and waive its own gate; the environment takes
+  # precedence over the file. Harmless for tak releases that predate it.
+  if [ "$(bool accept-trailers "${INPUT_ACCEPT_TRAILERS:-false}")" = true ]; then
+    export TAK_ACCEPT_TRAILERS=1
+  else
+    export TAK_ACCEPT_TRAILERS=0
+  fi
+
+  if [ "$accept_unsupported" = true ]; then
+    # Failing rather than comparing without the acceptances: a maintainer who
+    # accepted a regression should not see the gate quietly ignore that.
+    explain "The accept input names benchmarks, but $(tak --version) has no \`tak compare --accept\`. Upgrade tak, or remove accept."
+    rc=""
+  else
+    # No token: this runs after the pull request's code has. tak refreshes
+    # the notes from origin, and when that unauthenticated fetch fails (a
+    # private repository) it falls back to the notes the prepare step already
+    # fetched.
+    set +e
+    GIT_TERMINAL_PROMPT=0 tak "${args[@]}" >"$report" 2>"$TAK_ACTION_DIR/compare.err"
+    rc=$?
+    set -e
+    cat "$TAK_ACTION_DIR/compare.err" >&2
+  fi
 
   # tak has no machine-readable comparison output yet, so the outcomes are
   # told apart by its exit status and the text of its report. This is a
@@ -63,7 +99,9 @@ else
   # Otherwise the exit status is the primary signal. If the wording of the
   # gate line ever changes, a regression falls through to "error" and still
   # fails, rather than passing.
-  if [ ! -s "$report" ]; then
+  if [ -z "$rc" ]; then
+    : # already explained
+  elif [ ! -s "$report" ]; then
     explain "tak compare exited with status $rc and printed no report."
   elif grep -Fq '**Nothing was compared' "$report"; then
     status=nothing-compared

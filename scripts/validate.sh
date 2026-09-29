@@ -20,7 +20,8 @@ for pair in \
   "fail-on-regression:${INPUT_FAIL_ON_REGRESSION:-}" \
   "fail-on-nothing-compared:${INPUT_FAIL_ON_NOTHING_COMPARED:-}" \
   "comment:${INPUT_COMMENT:-}" \
-  "check:${INPUT_CHECK:-}"; do
+  "check:${INPUT_CHECK:-}" \
+  "accept-trailers:${INPUT_ACCEPT_TRAILERS:-}"; do
   bool "${pair%%:*}" "${pair#*:}" >/dev/null
 done
 

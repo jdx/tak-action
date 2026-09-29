@@ -94,6 +94,21 @@ inputs:
       sides). When false, report only; useful while history accumulates.
     required: false
     default: "true"
+  accept:
+    description: >-
+      Benchmarks whose regression is accepted, one exact name per line, each
+      passed to `tak compare --accept` (compare mode). Needs a tak release
+      with `--accept`; fails otherwise. Feed it from something the pull
+      request's author cannot set, such as maintainer-applied labels.
+    required: false
+    default: ""
+  accept-trailers:
+    description: >-
+      Honour `Tak-Accept:` commit trailers (compare mode). Off by default,
+      overriding tak.toml, because the pull request controls both its commits
+      and its tak.toml.
+    required: false
+    default: "false"
   upload-artifact:
     description: Upload the report as an artifact for a comment job (compare mode).
     required: false
@@ -170,6 +185,7 @@ runs:
         INPUT_HEAD_SHA: ${{ inputs.head-sha }}
         INPUT_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
         INPUT_FAIL_ON_NOTHING_COMPARED: ${{ inputs.fail-on-nothing-compared }}
+        INPUT_ACCEPT_TRAILERS: ${{ inputs.accept-trailers }}
         INPUT_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
         INPUT_ARTIFACT_NAME: ${{ inputs.artifact-name }}
         INPUT_COMMENT: ${{ inputs.comment }}
@@ -233,6 +249,8 @@ runs:
       env:
         INPUT_MEASURE: ${{ inputs.measure }}
         INPUT_GATE_PCT: ${{ inputs.gate-pct }}
+        INPUT_ACCEPT: ${{ inputs.accept }}
+        INPUT_ACCEPT_TRAILERS: ${{ inputs.accept-trailers }}
       run: bash "$GITHUB_ACTION_PATH/scripts/compare.sh"
 
     - name: Upload the report

@@ -202,6 +202,60 @@ which get a read-only token in the compare job and no comment without this split
 GitHub runs a `workflow_run` workflow from the default branch only, so this file does nothing
 until it has been merged.
 
+## Accepting an intentional regression
+
+> [!NOTE]
+> This needs a tak release that includes
+> [jdx/tak#153](https://github.com/jdx/tak/pull/153), which adds `tak compare --accept`. No
+> released tak has it yet (0.0.13 does not). With an older tak, a non-empty `accept` fails
+> the comparison with an explanation instead of silently ignoring it.
+
+When a change makes a benchmark more expensive on purpose, `accept` names the benchmarks whose
+regression should not fail the gate. Every other benchmark still gates, and the report lists
+each acceptance and where it came from. If every regression is accepted, `status` is `pass`.
+
+Feed it from something the pull request's author cannot set. A label that only maintainers
+can apply works well. This step reads `tak-accept:NAME` labels from the event as JSON, so a
+name containing a space stays whole. It runs no project code, so it can come before the
+action:
+
+```yaml
+on:
+  pull_request:
+    # Re-run when a maintainer adds or removes a label.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# ... in the compare job, after checkout:
+      - id: accept
+        name: Benchmarks accepted by label
+        run: |
+          delimiter="TAK_ACCEPT_$(openssl rand -hex 16)"
+          {
+            echo "names<<$delimiter"
+            jq -r '.pull_request.labels[].name | select(startswith("tak-accept:")) | ltrimstr("tak-accept:")' "$GITHUB_EVENT_PATH"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: jdx/tak-action@v0.1.0
+        with:
+          mode: compare
+          version: X.Y.Z # a tak release that includes --accept
+          accept: ${{ steps.accept.outputs.names }}
+```
+
+Each line of `accept` is passed whole: names are neither split on commas nor trimmed. Only
+wholly empty lines are dropped, such as the one a YAML block scalar leaves at the end.
+
+`Tak-Accept:` commit trailers are ignored unless `accept-trailers: true`. The trailers are in
+the pull request's own commits, and `tak.toml` is part of the checkout under test, so a pull
+request could otherwise switch trailer acceptance on and waive its own gate. The action always
+sets `TAK_ACCEPT_TRAILERS`, which takes precedence over the file; tak releases that predate
+the setting ignore it.
+
+The same caveat applies as to the gate itself: a pull request can edit its own copy of the
+compare workflow, including the `accept` input. Labels keep honest changes honest and make an
+acceptance visible, but they are not a control against a malicious contributor.
+
 ## Security model
 
 This follows the model in tak's
@@ -265,6 +319,8 @@ This follows the model in tak's
 | `head-sha` | compare, prepare | pull request head | commit that must be checked out; fails if HEAD differs. Empty skips the check |
 | `fail-on-regression` | compare, comment | `true` | fail (or, in comment, conclude the check `failure`) on a regression; `false` reports only |
 | `fail-on-nothing-compared` | compare, comment | `true` | the same for an empty comparison |
+| `accept` | compare | | benchmarks whose regression is accepted, one exact name per line, each passed as its own `tak compare --accept`. Needs a tak release with `--accept`; fails otherwise. See [accepting a regression](#accepting-an-intentional-regression) |
+| `accept-trailers` | compare | `false` | honour `Tak-Accept:` commit trailers. When `false` the action sets `TAK_ACCEPT_TRAILERS=0`, overriding `tak.toml` |
 | `upload-artifact` | compare | `true` | upload the report for a comment job |
 | `artifact-name` | compare, comment | `tak-report` | name of the report artifact |
 | `run-id` | comment | triggering run | run whose artifact to read |
@@ -297,7 +353,8 @@ its exit status and the text of its report. This is a stopgap until tak grows su
   newer ones may exit non-zero unless given `--allow-empty`. The action never passes that flag
   and applies `fail-on-nothing-compared` itself, so both behave the same.
 - **pass**: exit status 0.
-- **regressed**: a non-zero exit status and the report's `benchmark(s) above the …% gate` line.
+- **regressed**: a non-zero exit status and the report's `benchmark(s) above the …% gate`
+  line (or `above their gate`, with per-benchmark gates).
 - **error**: anything else, including a failed build, a moved `HEAD`, a failure before the
   comparison, or a non-zero exit without that line. If tak ever rewords the gate line, a
   regression lands here and still fails; it is not mistaken for a pass.

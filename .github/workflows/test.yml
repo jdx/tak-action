@@ -301,6 +301,33 @@ jobs:
           test "$BUILD_STATUS" = error
           grep -q 'exited with status 3' "$BUILD_REPORT"
 
+      # 0.0.13 predates `tak compare --accept`. Naming a benchmark must fail
+      # the comparison, not be silently ignored.
+      - name: Accept with a tak that cannot
+        id: accept-unsupported
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+          measure: "false"
+          accept: |
+            loop
+          artifact-name: tak-report-accept-unsupported
+
+      - name: Check accept failed clearly
+        env:
+          OUTCOME: ${{ steps.accept-unsupported.outcome }}
+          STATUS: ${{ steps.accept-unsupported.outputs.status }}
+          REPORT: ${{ steps.accept-unsupported.outputs.report }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$STATUS" = error
+          grep -Fq 'has no `tak compare --accept`' "$REPORT"
+
       - name: Reject invalid input
         id: bad-input
         continue-on-error: true
