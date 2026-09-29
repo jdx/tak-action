@@ -1,0 +1,57 @@
+name: test-comment
+
+# Comment mode against this repository's own pull requests, using the report
+# the test workflow uploads (a deliberate regression in the fixture). This is
+# the same shape a project uses: the untrusted job measures, this trusted job
+# posts.
+#
+# workflow_run always runs this file as it is on the default branch, so it
+# cannot be exercised by the pull request that adds or changes it.
+
+on: # zizmor: ignore[dangerous-triggers] runs the default branch's copy of this action and treats the artifact as data; nothing from the pull request is executed
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read # download the report artifact from the triggering run
+      checks: write # the check run on the pull request's head commit
+      pull-requests: write # the sticky comment
+    steps:
+      # The default branch, which is what workflow_run checks out: trusted
+      # code, needed only because this repository uses the action by path.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: comment
+        uses: ./
+        with:
+          mode: comment
+          # The fixture's regression is deliberate; report it without failing.
+          fail-on-regression: "false"
+          comment-key: tak-action-self-test
+          check-name: tak-action / self-test report
+
+      - name: Check the outcome
+        env:
+          STATUS: ${{ steps.comment.outputs.status }}
+          CONCLUSION: ${{ steps.comment.outputs.conclusion }}
+        run: |
+          echo "status=$STATUS conclusion=$CONCLUSION"
+          case "$STATUS" in
+            regressed) test "$CONCLUSION" = neutral ;;
+            skipped) ;;
+            *) exit 1 ;;
+          esac

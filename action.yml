@@ -1,0 +1,283 @@
+name: tak
+description: Record, compare and report tak instruction-count benchmarks (pre-v1)
+author: jdx
+branding:
+  icon: activity
+  color: gray-dark
+
+inputs:
+  mode:
+    description: >-
+      What to do. `record` measures and pushes refs/notes/tak (main branch).
+      `compare` measures a pull request and compares it with its merge base.
+      `comment` posts the compare job's report from a trusted workflow_run job.
+      `prepare` does only the trusted first half of `compare`, for jobs that
+      run their own steps before comparing. `install` installs tak and
+      valgrind and nothing else.
+    required: true
+  version:
+    description: >-
+      tak release to install, such as `0.0.13`. Required unless `install` is
+      false. There is no default: changing the measuring instrument can put a
+      step in the series, so upgrade it deliberately.
+    required: false
+    default: ""
+  install:
+    description: Download tak from its GitHub release. When false, use the tak already on PATH.
+    required: false
+    default: "true"
+  install-valgrind:
+    description: Install valgrind with apt-get when it is not already on PATH.
+    required: false
+    default: "true"
+  working-directory:
+    description: Directory inside the repository to run in.
+    required: false
+    default: "."
+  run:
+    description: >-
+      Command that builds the subject and records its measurements, run with
+      bash in `working-directory` (record and compare modes). Put the whole
+      build here in compare mode: it runs after credentials are removed.
+    required: false
+    default: tak run --record
+  measure:
+    description: Run `run`. Set to false when an earlier step already ran `tak run --record`.
+    required: false
+    default: "true"
+  runner-class:
+    description: Runner class to record under, exported to `run` as TAK_RUNNER. Empty uses tak.toml or tak's default.
+    required: false
+    default: ""
+  gate-pct:
+    description: Percentage an instruction count may rise before the comparison fails. Empty uses tak.toml or tak's default.
+    required: false
+    default: ""
+  token:
+    description: >-
+      Token for git and the GitHub API. record: pushes refs/notes/tak and
+      needs contents: write. compare/prepare: fetches the base branch and
+      notes before any project code runs, then is not used again. comment:
+      downloads the artifact and writes the comment and check.
+    required: false
+    default: ${{ github.token }}
+  push:
+    description: Push refs/notes/tak after recording (record mode).
+    required: false
+    default: "true"
+  summary:
+    description: Append `tak history` to the job summary (record mode).
+    required: false
+    default: "true"
+  base-ref:
+    description: Branch to compare against, by its merge base with HEAD. Defaults to the pull request's base branch.
+    required: false
+    default: ""
+  base:
+    description: Full SHA of a commit to compare against instead of a merge base. Overrides `base-ref`.
+    required: false
+    default: ""
+  head-sha:
+    description: >-
+      Commit that must be checked out. The comparison fails if HEAD differs,
+      which catches measuring GitHub's synthetic merge commit. Empty skips the
+      check.
+    required: false
+    default: ${{ github.event.pull_request.head.sha }}
+  fail-on-regression:
+    description: Fail when an instruction count rises beyond the gate. When false, report only.
+    required: false
+    default: "true"
+  fail-on-nothing-compared:
+    description: >-
+      Fail when nothing was compared (no benchmark was measured on both
+      sides). When false, report only; useful while history accumulates.
+    required: false
+    default: "true"
+  upload-artifact:
+    description: Upload the report as an artifact for a comment job (compare mode).
+    required: false
+    default: "true"
+  artifact-name:
+    description: Name of the report artifact, written by compare mode and read by comment mode.
+    required: false
+    default: tak-report
+  run-id:
+    description: Run whose artifact comment mode reads. Defaults to the triggering workflow_run.
+    required: false
+    default: ${{ github.event.workflow_run.id }}
+  comment:
+    description: Post or update a sticky comment on the pull request (comment mode).
+    required: false
+    default: "true"
+  comment-key:
+    description: Distinguishes this report's sticky comment from others on the same pull request.
+    required: false
+    default: tak
+  check:
+    description: Create a check run on the pull request's head commit (comment mode). Needs checks write.
+    required: false
+    default: "true"
+  check-name:
+    description: Name of the check run.
+    required: false
+    default: tak / instruction-count
+
+outputs:
+  status:
+    description: >-
+      compare and comment: `pass`, `regressed`, `nothing-compared` or `error`.
+      comment mode reports `skipped` when the triggering run was not a
+      pull request or was cancelled.
+    value: ${{ steps.compare.outputs.status || steps.comment.outputs.status }}
+  report:
+    description: Path of the markdown report (compare mode).
+    value: ${{ steps.compare.outputs.report }}
+  head-sha:
+    description: Commit that was measured (compare and prepare).
+    value: ${{ steps.compare.outputs.head-sha || steps.prepare.outputs.head-sha }}
+  base-sha:
+    description: Commit it was compared against (compare and prepare).
+    value: ${{ steps.compare.outputs.base-sha || steps.prepare.outputs.base-sha }}
+  conclusion:
+    description: Check-run conclusion chosen in comment mode.
+    value: ${{ steps.comment.outputs.conclusion }}
+  pr-number:
+    description: Pull request the comment mode reported on, or empty.
+    value: ${{ steps.comment.outputs.pr-number }}
+  comment-url:
+    description: URL of the sticky comment (comment mode).
+    value: ${{ steps.comment.outputs.comment-url }}
+
+runs:
+  using: composite
+  steps:
+    # Inputs reach scripts through env only, never through ${{ }} in a run
+    # block, so no input value is ever parsed as shell.
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_INSTALL: ${{ inputs.install }}
+        INPUT_INSTALL_VALGRIND: ${{ inputs.install-valgrind }}
+        INPUT_RUN: ${{ inputs.run }}
+        INPUT_MEASURE: ${{ inputs.measure }}
+        INPUT_GATE_PCT: ${{ inputs.gate-pct }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_PUSH: ${{ inputs.push }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
+        INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+        INPUT_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
+        INPUT_FAIL_ON_NOTHING_COMPARED: ${{ inputs.fail-on-nothing-compared }}
+        INPUT_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
+        INPUT_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_COMMENT_KEY: ${{ inputs.comment-key }}
+        INPUT_CHECK: ${{ inputs.check }}
+        INPUT_CHECK_NAME: ${{ inputs.check-name }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/validate.sh"
+
+    - name: Install tak and valgrind
+      if: inputs.mode != 'comment'
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_INSTALL: ${{ inputs.install }}
+        INPUT_INSTALL_VALGRIND: ${{ inputs.install-valgrind }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/install.sh"
+
+    # Before any project code: this is the only step in compare mode that
+    # receives the token, and it removes the checkout's credentials on its way
+    # out.
+    - name: Fetch the base and notes, then remove credentials
+      id: prepare
+      if: inputs.mode == 'prepare' || inputs.mode == 'compare'
+      shell: bash
+      env:
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_BASE_REF: ${{ inputs.base-ref }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/prepare.sh"
+
+    # No token in this step's environment, in either mode.
+    - name: Build and measure
+      if: (inputs.mode == 'record' || inputs.mode == 'compare') && inputs.measure == 'true'
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_RUN: ${{ inputs.run }}
+        INPUT_RUNNER_CLASS: ${{ inputs.runner-class }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/measure.sh"
+
+    - name: Push measurements
+      if: inputs.mode == 'record'
+      shell: bash
+      env:
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_PUSH: ${{ inputs.push }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/record.sh"
+
+    # From here on in compare mode, run even after a failure, so the report
+    # says what went wrong and the comment job has something to post.
+    - name: Compare with the base
+      id: compare
+      if: "!cancelled() && inputs.mode == 'compare'"
+      shell: bash
+      env:
+        INPUT_MEASURE: ${{ inputs.measure }}
+        INPUT_GATE_PCT: ${{ inputs.gate-pct }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/compare.sh"
+
+    - name: Upload the report
+      if: "!cancelled() && inputs.mode == 'compare' && inputs.upload-artifact == 'true'"
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/tak-action/report
+        retention-days: 7
+        if-no-files-found: error
+        overwrite: true
+
+    - name: Gate
+      if: "!cancelled() && inputs.mode == 'compare'"
+      shell: bash
+      env:
+        INPUT_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
+        INPUT_FAIL_ON_NOTHING_COMPARED: ${{ inputs.fail-on-nothing-compared }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/gate.sh"
+
+    # Comment mode. Reads the artifact from the triggering run; nothing from
+    # the pull request is checked out or executed.
+    - name: Download the report
+      id: download
+      if: inputs.mode == 'comment'
+      continue-on-error: true
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/tak-action/downloaded
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ inputs.token }}
+        repository: ${{ github.repository }}
+
+    - name: Comment and check
+      id: comment
+      if: inputs.mode == 'comment'
+      shell: bash
+      env:
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_ARTIFACT_DIR: ${{ runner.temp }}/tak-action/downloaded
+        INPUT_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_COMMENT_KEY: ${{ inputs.comment-key }}
+        INPUT_CHECK: ${{ inputs.check }}
+        INPUT_CHECK_NAME: ${{ inputs.check-name }}
+        INPUT_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
+        INPUT_FAIL_ON_NOTHING_COMPARED: ${{ inputs.fail-on-nothing-compared }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/comment.sh"
