@@ -116,12 +116,32 @@ else
   # any wording changes, the outcome falls through to "error" and still
   # fails, rather than passing.
   err="$TAK_ACTION_DIR/compare.err"
+
+  # Whether this tak has the allow_empty setting, from `tak settings`, which
+  # lists every setting by name at the start of a line. Run outside the
+  # repository, so no tak.toml is read and nothing the pull request controls
+  # can reach the output.
+  tak_has_allow_empty() {
+    local settings
+    settings=$(cd "${RUNNER_TEMP:?}" && tak settings 2>/dev/null) || return 1
+    grep -Eq '^allow_empty[[:space:]]' <<<"$settings"
+  }
   if [ -z "$rc" ]; then
     : # already explained
   elif [ ! -s "$report" ]; then
     explain "tak compare exited with status $rc and printed no report."
   elif [[ "$(head -n1 "$report")" == '**Nothing was compared, and so nothing was gated.**'* ]]; then
-    status=nothing-compared
+    # tak releases with an allow_empty setting exit 0 for an empty
+    # comparison only when that setting, read from the base's tak.toml, is
+    # on: tak has already decided it should pass. Older releases exit 0 for
+    # every empty comparison and decided nothing, so the same exit 0 means
+    # nothing there. The exit status alone cannot tell the two apart; what
+    # the installed tak supports can.
+    if [ "$rc" -eq 0 ] && tak_has_allow_empty; then
+      status=nothing-compared-allowed
+    else
+      status=nothing-compared
+    fi
   elif [ "$rc" -eq 0 ]; then
     status=pass
   elif grep -Eq '^Error: [0-9]+ benchmark\(s\) regressed (by more than|beyond their gate)' "$err" &&
@@ -159,6 +179,7 @@ case "$status" in
   pass) headline="No instruction-count regression beyond the gate." ;;
   regressed) headline="An instruction count rose beyond the gate." ;;
   nothing-compared) headline="Nothing was compared: no benchmark was measured on both sides." ;;
+  nothing-compared-allowed) headline="Nothing was compared, which tak allows here (allow_empty)." ;;
   *) headline="The comparison did not run." ;;
 esac
 

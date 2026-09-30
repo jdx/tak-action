@@ -38,7 +38,9 @@ jobs:
         id: fixture
         run: |
           root="$RUNNER_TEMP/fixture"
-          base=$(test/fixture.sh init "$root")
+          # --newline-names while TAK_VERSION is 0.0.13: later tak rejects
+          # control characters in benchmark names.
+          base=$(test/fixture.sh init "$root" --newline-names)
           {
             echo "root=$root"
             echo "work=$root/work"
@@ -359,6 +361,9 @@ jobs:
           # A clean run whose report has the empty-comparison sentence on a
           # line of its own, as a name containing a newline produces.
           - case: clean-run-with-injected-empty-verdict
+            policy: "auto"
+            allow_empty_setting: false
+            want_outcome: success
             exit: 0
             report: |
               | benchmark | instructions | Δ | wall (min) | Δ |
@@ -371,6 +376,9 @@ jobs:
             want: pass
           # Stray error text alone cannot make a clean exit fail.
           - case: clean-run-with-injected-stderr
+            policy: "auto"
+            allow_empty_setting: false
+            want_outcome: success
             exit: 0
             report: |
               | benchmark | instructions | Δ | wall (min) | Δ |
@@ -385,6 +393,9 @@ jobs:
           # still an error, not a regression (which fail-on-regression: false
           # would let through).
           - case: failure-with-injected-gate-verdict
+            policy: "auto"
+            allow_empty_setting: false
+            want_outcome: failure
             exit: 1
             report: |
               | benchmark | instructions | Δ | wall (min) | Δ |
@@ -398,6 +409,9 @@ jobs:
           # stderr: still a regression, not "nothing compared" (which
           # fail-on-nothing-compared: false would let through).
           - case: regression-with-injected-empty-error
+            policy: "false"
+            allow_empty_setting: false
+            want_outcome: success
             exit: 1
             report: |
               | benchmark | instructions | Δ | wall (min) | Δ |
@@ -411,6 +425,9 @@ jobs:
             want: regressed
           # Per-benchmark gates word the verdict differently in newer tak.
           - case: regression-beyond-their-gate
+            policy: "auto"
+            allow_empty_setting: false
+            want_outcome: success
             exit: 1
             report: |
               | benchmark | instructions | Δ | wall (min) | Δ |
@@ -423,6 +440,77 @@ jobs:
             want: regressed
           # An empty comparison as newer tak reports it: non-zero exit.
           - case: empty-comparison-nonzero-exit
+            policy: "false"
+            allow_empty_setting: true
+            want_outcome: success
+            exit: 1
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+            stderr: |
+              Error: nothing was compared: no series was measured on both a and b.
+            want: nothing-compared
+          # tak with allow_empty passed an empty comparison (exit 0): auto
+          # follows it, true overrides it, false passes it.
+          - case: allowed-empty-auto
+            policy: auto
+            allow_empty_setting: true
+            want_outcome: success
+            exit: 0
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+
+              This passes with a warning instead of failing, because `allow_empty` is on.
+            stderr: |
+              ::warning::nothing was compared: no series was measured on both a and b; passing because `allow_empty` is on
+            want: nothing-compared-allowed
+          - case: allowed-empty-true-overrides
+            policy: "true"
+            allow_empty_setting: true
+            want_outcome: failure
+            exit: 0
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+
+              This passes with a warning instead of failing, because `allow_empty` is on.
+            stderr: ""
+            want: nothing-compared-allowed
+          - case: allowed-empty-false
+            policy: "false"
+            allow_empty_setting: true
+            want_outcome: success
+            exit: 0
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+
+              This passes with a warning instead of failing, because `allow_empty` is on.
+            stderr: ""
+            want: nothing-compared-allowed
+          # tak 0.0.13 exits 0 for every empty comparison and has no
+          # allow_empty setting, so exit 0 decides nothing: auto still fails.
+          - case: old-tak-empty-exit-zero-auto
+            policy: auto
+            allow_empty_setting: false
+            want_outcome: failure
+            exit: 0
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+            stderr: ""
+            want: nothing-compared
+          - case: old-tak-empty-exit-zero-false
+            policy: "false"
+            allow_empty_setting: false
+            want_outcome: success
+            exit: 0
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+            stderr: ""
+            want: nothing-compared
+          # tak with the setting failed an empty comparison (allow_empty off at
+          # the base): auto fails.
+          - case: new-tak-empty-nonzero-auto
+            policy: auto
+            allow_empty_setting: true
+            want_outcome: failure
             exit: 1
             report: |
               **Nothing was compared, and so nothing was gated.** No series appears on both sides.
@@ -440,6 +528,7 @@ jobs:
           CASE_EXIT: ${{ matrix.exit }}
           CASE_REPORT: ${{ matrix.report }}
           CASE_STDERR: ${{ matrix.stderr }}
+          CASE_ALLOW_EMPTY_SETTING: ${{ matrix.allow_empty_setting }}
         run: |
           root="$RUNNER_TEMP/fixture"
           head=$(test/fixture.sh init "$root")
@@ -447,6 +536,9 @@ jobs:
           printf '%s' "$CASE_REPORT" > "$RUNNER_TEMP/fake-tak/report"
           printf '%s' "$CASE_STDERR" > "$RUNNER_TEMP/fake-tak/stderr"
           echo "$CASE_EXIT" > "$RUNNER_TEMP/fake-tak/exit"
+          if [ "$CASE_ALLOW_EMPTY_SETTING" = true ]; then
+            touch "$RUNNER_TEMP/fake-tak/allow-empty-setting"
+          fi
           echo "$GITHUB_WORKSPACE/test/fake-tak" >> "$GITHUB_PATH"
           {
             echo "work=$root/work"
@@ -465,16 +557,19 @@ jobs:
           head-sha: ${{ steps.fixture.outputs.head }}
           measure: "false"
           fail-on-regression: "false"
-          fail-on-nothing-compared: "false"
+          fail-on-nothing-compared: ${{ matrix.policy }}
           artifact-name: tak-report-classify-${{ matrix.case }}
 
-      - name: Check the classification
+      - name: Check the classification and the gate
         env:
           STATUS: ${{ steps.compare.outputs.status }}
           WANT: ${{ matrix.want }}
+          OUTCOME: ${{ steps.compare.outcome }}
+          WANT_OUTCOME: ${{ matrix.want_outcome }}
         run: |
-          echo "status=$STATUS want=$WANT"
+          echo "status=$STATUS want=$WANT outcome=$OUTCOME want_outcome=$WANT_OUTCOME"
           test "$STATUS" = "$WANT"
+          test "$OUTCOME" = "$WANT_OUTCOME"
 
   # actions/checkout v6 and later keep the token in a file under RUNNER_TEMP,
   # included from .git/config, rather than in .git/config itself. Check that

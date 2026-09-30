@@ -78,7 +78,7 @@ else
   else
     candidate=$(read_artifact status 32 | tr -d '[:space:]')
     case "$candidate" in
-      pass | regressed | nothing-compared | error) status=$candidate ;;
+      pass | regressed | nothing-compared | nothing-compared-allowed | error) status=$candidate ;;
       *) status=error ;;
     esac
     base_sha=$(read_artifact base-sha 128 | tr -d '[:space:]')
@@ -110,8 +110,14 @@ case "$status" in
     title="An instruction count rose beyond the gate"
     ;;
   nothing-compared)
-    conclusion=$([ "$(bool fail-on-nothing-compared "$INPUT_FAIL_ON_NOTHING_COMPARED")" = true ] && echo failure || echo neutral)
+    conclusion=$([ "$(nothing_compared_policy "$INPUT_FAIL_ON_NOTHING_COMPARED")" != false ] && echo failure || echo neutral)
     title="Nothing was compared"
+    ;;
+  nothing-compared-allowed)
+    # Neutral, not success: the gate checked nothing, and a green check would
+    # read as if it had.
+    conclusion=$([ "$(nothing_compared_policy "$INPUT_FAIL_ON_NOTHING_COMPARED")" = true ] && echo failure || echo neutral)
+    title="Nothing was compared (allowed by allow_empty)"
     ;;
   *)
     conclusion=failure

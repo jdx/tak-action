@@ -41,7 +41,8 @@ worth catching.
   clearly on other operating systems.
 - Main-branch history before gating. A pull request can only be compared against a base
   commit that `record` has measured, on the same runner class. Until that history exists,
-  every comparison reports *nothing was compared*, which fails by default.
+  every comparison reports *nothing was compared*, which fails by default. See
+  [empty comparisons](#when-nothing-was-compared) for tak's `allow_empty` setting.
 
 ## Example workflows
 
@@ -141,7 +142,8 @@ jobs:
 
 The report goes to the job summary and to an artifact named `tak-report`. The job fails when
 an instruction count rises beyond the gate (`[gate].pct` in `tak.toml`, or `gate-pct`), when
-nothing was compared, or when the build or the comparison fails.
+nothing was compared (unless tak's `allow_empty` setting allows it; see
+[below](#when-nothing-was-compared)), or when the build or the comparison fails.
 
 If the build needs another action, such as `jdx/mise-action` reading the pull request's
 `mise.toml`, split the comparison around it so the trusted half still runs first. When
@@ -196,7 +198,9 @@ jobs:
 `workflows: [perf-pr]` must match the `name:` of the compare workflow. The comment is edited in
 place on every push. The check run is named `tak / instruction-count` by default; its
 conclusion is `success`, `failure`, or `neutral` when `fail-on-regression` or
-`fail-on-nothing-compared` is `false` in *this* workflow. It works for pull requests from forks,
+`fail-on-nothing-compared` is `false` in *this* workflow. An empty comparison that tak allowed
+(`nothing-compared-allowed`) is `neutral` under the default `auto`, not `success`, because the
+gate checked nothing. It works for pull requests from forks,
 which get a read-only token in the compare job and no comment without this split.
 
 GitHub runs a `workflow_run` workflow from the default branch only, so this file does nothing
@@ -318,7 +322,7 @@ This follows the model in tak's
 | `base` | compare, prepare | | full SHA to compare against instead; overrides `base-ref` |
 | `head-sha` | compare, prepare | pull request head | commit that must be checked out; fails if HEAD differs. Empty skips the check |
 | `fail-on-regression` | compare, comment | `true` | fail (or, in comment, conclude the check `failure`) on a regression; `false` reports only |
-| `fail-on-nothing-compared` | compare, comment | `true` | the same for an empty comparison |
+| `fail-on-nothing-compared` | compare, comment | `auto` | what to do when nothing was compared. `auto` follows tak's `allow_empty` setting where the installed tak has it, and fails otherwise; `true` always fails; `false` always reports only. See [below](#when-nothing-was-compared) |
 | `accept` | compare | | benchmarks whose regression is accepted, one exact name per line, each passed as its own `tak compare --accept`. Needs a tak release with `--accept`; fails otherwise. See [accepting a regression](#accepting-an-intentional-regression) |
 | `accept-trailers` | compare | `false` | honour `Tak-Accept:` commit trailers. When `false` the action sets `TAK_ACCEPT_TRAILERS=0`, overriding `tak.toml` |
 | `upload-artifact` | compare | `true` | upload the report for a comment job |
@@ -335,7 +339,7 @@ Boolean inputs accept `true` or `false` and nothing else, so a typo cannot switc
 
 | output | modes | description |
 |---|---|---|
-| `status` | compare, comment | `pass`, `regressed`, `nothing-compared` or `error`; comment reports `skipped` when the triggering run was not a pull request or was cancelled |
+| `status` | compare, comment | `pass`, `regressed`, `nothing-compared`, `nothing-compared-allowed` or `error`; comment reports `skipped` when the triggering run was not a pull request or was cancelled |
 | `report` | compare | path of the markdown report |
 | `head-sha` | compare, prepare | the commit measured |
 | `base-sha` | compare, prepare | the commit compared against |
@@ -355,11 +359,12 @@ its commits. A start-of-line anchor is not enough either, because tak 0.0.13 wri
 inside a benchmark name as a real newline, so a name can begin a line of its own. Each verdict
 is therefore read only where echoed text cannot reach:
 
-- **nothing-compared**: the report's *first line* is `**Nothing was compared, and so nothing was
-  gated.**`. tak writes that sentence before any name. This is checked whatever the exit
-  status: released tak versions exit 0 for an empty comparison, and newer ones exit non-zero
-  unless given `--allow-empty`. The action never passes that flag and applies
-  `fail-on-nothing-compared` itself, so both behave the same.
+- **nothing-compared** or **nothing-compared-allowed**: the report's *first line* is
+  `**Nothing was compared, and so nothing was gated.**`. tak writes that sentence before any
+  name. It is `nothing-compared-allowed` when tak exited 0 *and* the installed tak has the
+  `allow_empty` setting, so tak itself decided the empty comparison passes. It is
+  `nothing-compared` otherwise: tak failed it, or the tak is too old to have decided anything.
+  See [below](#when-nothing-was-compared).
 - **pass**: exit status 0. No report text can produce it.
 - **regressed**: a non-zero exit, tak's `Error: N benchmark(s) regressed …` line on stderr
   (which names a count and a threshold, never a benchmark), *and* the report's
@@ -369,7 +374,42 @@ is therefore read only where echoed text cannot reach:
   regression lands here and still fails; it is not mistaken for a pass.
 
 Comment mode does not read the report text at all: it takes `status` from the artifact and
-accepts only the four values above.
+accepts only the five values above. A comment job running tak-action v0.1.1 or earlier does
+not know `nothing-compared-allowed` and reports it as an error, so upgrade the comment workflow
+on the default branch together with the compare workflow.
+
+## When nothing was compared
+
+An empty comparison means no benchmark was measured on both sides. That happens when the base
+was never recorded or its notes were never fetched, but also on a new runner class, for a new
+benchmark, or on the first pull requests after adopting tak. tak cannot tell these apart.
+
+tak releases after 0.0.13 have an `allow_empty` setting that makes an empty comparison pass
+with a warning:
+
+```toml
+[gate]
+allow_empty = true
+```
+
+`tak compare` reads it from the **base** revision's `tak.toml`, so a pull request that turns it
+on still fails its own empty comparison; the setting takes effect once it is merged.
+
+`fail-on-nothing-compared` decides what the action does:
+
+| value | tak with `allow_empty` | tak 0.0.13 and earlier |
+|---|---|---|
+| `auto` (default) | follows tak: `nothing-compared-allowed` passes with a warning annotation, anything else fails | fails, because those releases exit 0 for every empty comparison and so decided nothing |
+| `true` | fails, even when tak allowed it | fails |
+| `false` | passes with a warning | passes with a warning |
+
+The action never passes `--allow-empty` itself. With `auto`, the base branch's `tak.toml` is the
+one place the policy is set.
+
+The installed tak's support is detected from `tak settings`, run outside the repository so no
+`tak.toml` is read, listing `allow_empty`. No tak release has the setting yet (0.0.13 is the
+latest); this was tested against tak built from its main branch, which includes
+[jdx/tak#173](https://github.com/jdx/tak/pull/173).
 
 ## The report artifact
 

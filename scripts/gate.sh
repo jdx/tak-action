@@ -18,11 +18,20 @@ case "$status" in
   nothing-compared)
     # An empty comparison is not a pass. It means the base was never recorded,
     # or was recorded on a different runner class, and in both cases the gate
-    # checked nothing.
-    if [ "$(bool fail-on-nothing-compared "$INPUT_FAIL_ON_NOTHING_COMPARED")" = true ]; then
-      die "nothing was compared: the base commit has no measurement on this runner class. Record the base branch first (mode: record), or set fail-on-nothing-compared: false while history accumulates"
+    # checked nothing. Under auto this fails too: either tak failed it, or the
+    # installed tak is too old to have decided anything.
+    if [ "$(nothing_compared_policy "$INPUT_FAIL_ON_NOTHING_COMPARED")" != false ]; then
+      die "nothing was compared: the base commit has no measurement on this runner class. Record the base branch first (mode: record), set [gate] allow_empty = true in tak.toml on the base branch (tak releases with that setting), or set fail-on-nothing-compared: false"
     fi
     warn "nothing was compared (allowed, because fail-on-nothing-compared is false)"
+    ;;
+  nothing-compared-allowed)
+    # tak passed an empty comparison because allow_empty is on in the base's
+    # tak.toml. auto follows that; true overrides it.
+    if [ "$(nothing_compared_policy "$INPUT_FAIL_ON_NOTHING_COMPARED")" = true ]; then
+      die "nothing was compared. tak allowed it (allow_empty is on), but fail-on-nothing-compared is true"
+    fi
+    warn "nothing was compared; passing because tak's allow_empty setting is on. That is expected on a new runner class, for a new benchmark or a first recording, and is also what unrecorded or unfetched history looks like"
     ;;
   *)
     die "the comparison did not run; see the errors above and the job summary"

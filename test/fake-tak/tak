@@ -7,6 +7,14 @@ set -euo pipefail
 dir="${RUNNER_TEMP:?}/fake-tak"
 case "${1:-}" in
   --version) echo "tak 0.0.0-fake" ;;
+  # Lists allow_empty, as tak releases with that setting do, only when the
+  # case says this stand-in is one of them.
+  settings)
+    echo "env_allow  list<string>"
+    if [ -e "$dir/allow-empty-setting" ]; then
+      echo "allow_empty  bool"
+    fi
+    ;;
   compare)
     cat "$dir/report"
     cat "$dir/stderr" >&2

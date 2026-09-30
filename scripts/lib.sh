@@ -40,6 +40,15 @@ bool() {
   esac
 }
 
+# fail-on-nothing-compared, normalised to auto, true or false. Validated up
+# front, so anything else here is a bug.
+nothing_compared_policy() {
+  case "$1" in
+    auto | Auto | AUTO) echo auto ;;
+    *) bool fail-on-nothing-compared "$1" ;;
+  esac
+}
+
 output() {
   echo "$1=$2" >>"${GITHUB_OUTPUT:?}"
 }

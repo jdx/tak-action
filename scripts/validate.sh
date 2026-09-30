@@ -18,12 +18,18 @@ for pair in \
   "summary:${INPUT_SUMMARY:-}" \
   "upload-artifact:${INPUT_UPLOAD_ARTIFACT:-}" \
   "fail-on-regression:${INPUT_FAIL_ON_REGRESSION:-}" \
-  "fail-on-nothing-compared:${INPUT_FAIL_ON_NOTHING_COMPARED:-}" \
   "comment:${INPUT_COMMENT:-}" \
   "check:${INPUT_CHECK:-}" \
   "accept-trailers:${INPUT_ACCEPT_TRAILERS:-}"; do
   bool "${pair%%:*}" "${pair#*:}" >/dev/null
 done
+
+# Three values, not a boolean: auto (the default) follows tak's own
+# allow_empty setting where the installed tak has one.
+case "${INPUT_FAIL_ON_NOTHING_COMPARED:-}" in
+  true | True | TRUE | false | False | FALSE | auto | Auto | AUTO) ;;
+  *) die "input 'fail-on-nothing-compared' must be 'auto', 'true' or 'false', got '${INPUT_FAIL_ON_NOTHING_COMPARED:-}'" ;;
+esac
 
 if [ "$INPUT_MODE" != comment ]; then
   if [ "$(bool install "$INPUT_INSTALL")" = true ] && [ -z "${INPUT_VERSION:-}" ]; then
