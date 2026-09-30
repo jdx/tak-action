@@ -90,10 +90,12 @@ inputs:
     default: "true"
   fail-on-nothing-compared:
     description: >-
-      Fail when nothing was compared (no benchmark was measured on both
-      sides). When false, report only; useful while history accumulates.
+      What to do when nothing was compared (no benchmark was measured on both
+      sides). `auto` follows tak's `allow_empty` setting, read from the base's
+      tak.toml, on tak releases that have it, and fails on releases that do
+      not. `true` always fails; `false` always reports only.
     required: false
-    default: "true"
+    default: auto
   accept:
     description: >-
       Benchmarks whose regression is accepted, one exact name per line, each
@@ -141,9 +143,10 @@ inputs:
 outputs:
   status:
     description: >-
-      compare and comment: `pass`, `regressed`, `nothing-compared` or `error`.
-      comment mode reports `skipped` when the triggering run was not a
-      pull request or was cancelled.
+      compare and comment: `pass`, `regressed`, `nothing-compared`,
+      `nothing-compared-allowed` (tak passed an empty comparison because its
+      `allow_empty` setting is on) or `error`. comment mode reports `skipped`
+      when the triggering run was not a pull request or was cancelled.
     value: ${{ steps.compare.outputs.status || steps.comment.outputs.status }}
   report:
     description: Path of the markdown report (compare mode).

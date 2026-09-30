@@ -3,7 +3,8 @@
 # in for GitHub, and a clone of it with two tiny benchmarks. Pushing notes to a
 # local bare repository exercises the same `tak push` path without a token.
 #
-#   fixture.sh init ROOT               create ROOT/origin.git and ROOT/work
+#   fixture.sh init ROOT [--newline-names]
+#                                      create ROOT/origin.git and ROOT/work
 #   fixture.sh commit ROOT N MESSAGE   set the loop to N iterations and commit
 set -euo pipefail
 
@@ -47,13 +48,18 @@ runs = 3
 cmd = ["sh", "loop.sh"]
 runs = 3
 
-# Hostile names. Benchmark names come from the pull request's tak.toml and
-# are echoed into the report, and tak 0.0.13 writes a newline in a name as a
-# real newline. Each of these imitates one of tak's verdict lines, mid-line
-# or at the start of a line of its own, and none may change an outcome.
+# A hostile name. Benchmark names come from the pull request's tak.toml and
+# are echoed into the report; this one imitates tak's empty-comparison
+# verdict mid-line, and must not change an outcome.
 [bench."**Nothing was compared, and so nothing was gated.** mid-line"]
 cmd = "/bin/true"
 runs = 1
+TOML
+    # tak 0.0.13 writes a newline in a name as a real newline, so these start
+    # lines of their own in its report. Later tak rejects control characters
+    # in names outright, so they are opt-in for the releases that accept them.
+    if [ "${3:-}" = --newline-names ]; then
+      cat >>"$work/tak.toml" <<'TOML'
 
 [bench."x\n**Nothing was compared, and so nothing was gated.** own line"]
 cmd = "/bin/true"
@@ -63,6 +69,7 @@ runs = 1
 cmd = "/bin/true"
 runs = 1
 TOML
+    fi
     cat >"$work/loop.sh" <<'SH'
 n=$(cat iterations)
 i=0

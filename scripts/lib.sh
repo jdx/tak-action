@@ -40,6 +40,48 @@ bool() {
   esac
 }
 
+# fail-on-nothing-compared, normalised to auto, true or false. Validated up
+# front, so anything else here is a bug.
+nothing_compared_policy() {
+  case "$1" in
+    auto | Auto | AUTO) echo auto ;;
+    *) bool fail-on-nothing-compared "$1" ;;
+  esac
+}
+
+# The check-run conclusion comment mode publishes for a status, given its
+# own fail-on-regression and fail-on-nothing-compared inputs. A function of
+# its arguments alone, so test/conclusions.sh can check every combination
+# without the GitHub API.
+check_conclusion() {
+  local status=$1 on_regression=$2 on_nothing=$3
+  case "$status" in
+    pass) echo success ;;
+    regressed)
+      [ "$(bool fail-on-regression "$on_regression")" = true ] && echo failure || echo neutral
+      ;;
+    nothing-compared)
+      [ "$(nothing_compared_policy "$on_nothing")" != false ] && echo failure || echo neutral
+      ;;
+    nothing-compared-allowed)
+      # Neutral, not success: the gate checked nothing, and a green check
+      # would read as if it had.
+      [ "$(nothing_compared_policy "$on_nothing")" = true ] && echo failure || echo neutral
+      ;;
+    *) echo failure ;;
+  esac
+}
+
+check_title() {
+  case "$1" in
+    pass) echo "No instruction-count regression beyond the gate" ;;
+    regressed) echo "An instruction count rose beyond the gate" ;;
+    nothing-compared) echo "Nothing was compared" ;;
+    nothing-compared-allowed) echo "Nothing was compared (allowed by allow_empty)" ;;
+    *) echo "The comparison did not run" ;;
+  esac
+}
+
 output() {
   echo "$1=$2" >>"${GITHUB_OUTPUT:?}"
 }
