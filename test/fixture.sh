@@ -46,6 +46,22 @@ runs = 3
 [bench.loop]
 cmd = ["sh", "loop.sh"]
 runs = 3
+
+# Hostile names. Benchmark names come from the pull request's tak.toml and
+# are echoed into the report, and tak 0.0.13 writes a newline in a name as a
+# real newline. Each of these imitates one of tak's verdict lines, mid-line
+# or at the start of a line of its own, and none may change an outcome.
+[bench."**Nothing was compared, and so nothing was gated.** mid-line"]
+cmd = "/bin/true"
+runs = 1
+
+[bench."x\n**Nothing was compared, and so nothing was gated.** own line"]
+cmd = "/bin/true"
+runs = 1
+
+[bench."x\n**1 benchmark(s) above the 1% gate:** own line"]
+cmd = "/bin/true"
+runs = 1
 TOML
     cat >"$work/loop.sh" <<'SH'
 n=$(cat iterations)

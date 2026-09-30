@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# A stand-in for tak in the classifier tests: `tak compare` prints a canned
+# report and stderr and exits with a canned status, so the action's
+# classification can be tested against output real tak would only produce
+# with hostile input. Everything else is refused.
+set -euo pipefail
+dir="${RUNNER_TEMP:?}/fake-tak"
+case "${1:-}" in
+  --version) echo "tak 0.0.0-fake" ;;
+  compare)
+    cat "$dir/report"
+    cat "$dir/stderr" >&2
+    exit "$(cat "$dir/exit")"
+    ;;
+  *)
+    echo "fake tak: unsupported command: $*" >&2
+    exit 2
+    ;;
+esac

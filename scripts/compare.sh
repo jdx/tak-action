@@ -88,26 +88,44 @@ else
   fi
 
   # tak has no machine-readable comparison output yet, so the outcomes are
-  # told apart by its exit status and the text of its report. This is a
-  # stopgap until it does.
+  # told apart by its exit status and by lines tak writes itself. This is a
+  # stopgap until it has one.
   #
-  # An empty comparison is recognised by its text whatever the exit status:
-  # released versions exit 0 for it, and newer ones may exit non-zero unless
-  # given --allow-empty. The action never passes that flag and decides with
-  # fail-on-nothing-compared instead, so both behave the same here.
+  # The report is not safe to search as a whole. It echoes text the pull
+  # request controls: benchmark names from its tak.toml, and in newer
+  # releases Tak-Accept trailer values from its commits. Unanchored, a name
+  # such as `**Nothing was compared` turned a clean run into a failure.
+  # Anchoring to the start of a line is not enough either: tak 0.0.13 writes
+  # a newline inside a benchmark name as a real newline, so a name can start
+  # a line of its own. So each verdict is read only where no echoed text can
+  # reach:
   #
-  # Otherwise the exit status is the primary signal. If the wording of the
-  # gate line ever changes, a regression falls through to "error" and still
+  # - Nothing compared: the first line of the report, which tak writes
+  #   before any name, in 0.0.13 and in releases that exit non-zero for it
+  #   (the action never passes --allow-empty; fail-on-nothing-compared
+  #   decides). Checked whatever the exit status, because released versions
+  #   exit 0 for it. Not tak's stderr: that is checked before the exit status,
+  #   so text reaching stderr could relabel a real regression as "nothing
+  #   compared", which fail-on-nothing-compared: false would then pass.
+  # - Regressed: a non-zero exit, tak's gate error on stderr (a count and a
+  #   threshold, never a benchmark name), and the verdict line in the report,
+  #   anchored to the start of a line. Both, so a stray match in one alone
+  #   cannot turn another failure into a regression.
+  #
+  # A clean run needs exit status 0, which no report text can produce. If
+  # any wording changes, the outcome falls through to "error" and still
   # fails, rather than passing.
+  err="$TAK_ACTION_DIR/compare.err"
   if [ -z "$rc" ]; then
     : # already explained
   elif [ ! -s "$report" ]; then
     explain "tak compare exited with status $rc and printed no report."
-  elif grep -Fq '**Nothing was compared' "$report"; then
+  elif [[ "$(head -n1 "$report")" == '**Nothing was compared, and so nothing was gated.**'* ]]; then
     status=nothing-compared
   elif [ "$rc" -eq 0 ]; then
     status=pass
-  elif grep -Fq 'benchmark(s) above the ' "$report"; then
+  elif grep -Eq '^Error: [0-9]+ benchmark\(s\) regressed (by more than|beyond their gate)' "$err" &&
+    grep -Eq '^\*\*[0-9]+ benchmark\(s\) above (the [^ ]+% gate|their gate)' "$report"; then
     status=regressed
   else
     status=error
