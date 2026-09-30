@@ -347,6 +347,7 @@ jobs:
   # trailer values can. A stand-in tak prints each canned case, so these do
   # not depend on a tak release that can produce them.
   classify:
+    name: classify (${{ matrix.case }})
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
