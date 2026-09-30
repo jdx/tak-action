@@ -20,7 +20,7 @@ run = "actionlint"
 
 [tasks."lint:shellcheck"]
 description = "Check the action's shell scripts"
-run = "shellcheck --external-sources --source-path=SCRIPTDIR/.. scripts/*.sh scripts/*/*.sh test/*.sh"
+run = "shellcheck --external-sources --source-path=SCRIPTDIR/.. scripts/*.sh scripts/*/*.sh test/*.sh test/fake-tak/tak"
 
 [tasks."lint:zizmor"]
 description = "Audit workflows and action.yml for security problems"

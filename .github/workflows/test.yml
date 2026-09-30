@@ -130,7 +130,7 @@ jobs:
           REPORT: ${{ steps.regressed.outputs.report }}
         run: |
           test "$STATUS" = regressed
-          grep -q 'benchmark(s) above the' "$REPORT"
+          grep -Eq '^\*\*[0-9]+ benchmark\(s\) above the' "$REPORT"
 
       # For test-comment.yml, which runs comment mode against this pull
       # request. Comment mode accepts a report only for the commit the
@@ -341,6 +341,139 @@ jobs:
         env:
           OUTCOME: ${{ steps.bad-input.outcome }}
         run: test "$OUTCOME" = failure
+
+  # How compare mode classifies tak's output when that output carries text
+  # imitating tak's own verdicts, as echoed benchmark names and Tak-Accept
+  # trailer values can. A stand-in tak prints each canned case, so these do
+  # not depend on a tak release that can produce them.
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A clean run whose report has the empty-comparison sentence on a
+          # line of its own, as a name containing a newline produces.
+          - case: clean-run-with-injected-empty-verdict
+            exit: 0
+            report: |
+              | benchmark | instructions | Δ | wall (min) | Δ |
+              |---|---:|---:|---:|---:|
+              | x
+              **Nothing was compared, and so nothing was gated.** | 1 → 1 | **+0.00%** | 1.00 → 1.00ms | +0.00% |
+
+              No instruction-count regression above 1%.
+            stderr: ""
+            want: pass
+          # Stray error text alone cannot make a clean exit fail.
+          - case: clean-run-with-injected-stderr
+            exit: 0
+            report: |
+              | benchmark | instructions | Δ | wall (min) | Δ |
+              |---|---:|---:|---:|---:|
+              | a | 1 → 1 | **+0.00%** | 1.00 → 1.00ms | +0.00% |
+
+              No instruction-count regression above 1%.
+            stderr: |
+              Error: nothing was compared
+            want: pass
+          # Some other failure, with a gate verdict injected into the report:
+          # still an error, not a regression (which fail-on-regression: false
+          # would let through).
+          - case: failure-with-injected-gate-verdict
+            exit: 1
+            report: |
+              | benchmark | instructions | Δ | wall (min) | Δ |
+              |---|---:|---:|---:|---:|
+              | x
+              **1 benchmark(s) above the 1% gate:** | 1 → 1 | **+0.00%** | 1.00 → 1.00ms | +0.00% |
+            stderr: |
+              Error: git notes failed: something else
+            want: error
+          # A real regression with an empty-comparison error injected into
+          # stderr: still a regression, not "nothing compared" (which
+          # fail-on-nothing-compared: false would let through).
+          - case: regression-with-injected-empty-error
+            exit: 1
+            report: |
+              | benchmark | instructions | Δ | wall (min) | Δ |
+              |---|---:|---:|---:|---:|
+              | loop | 1,000 → 2,000 | **+100.00%** ⚠️ | 1.00 → 2.00ms | +100.00% |
+
+              **1 benchmark(s) above the 1% gate:** `loop` +100.00%
+            stderr: |
+              Error: nothing was compared
+              Error: 1 benchmark(s) regressed by more than 1%
+            want: regressed
+          # Per-benchmark gates word the verdict differently in newer tak.
+          - case: regression-beyond-their-gate
+            exit: 1
+            report: |
+              | benchmark | instructions | Δ | wall (min) | Δ |
+              |---|---:|---:|---:|---:|
+              | loop | 1,000 → 2,000 | **+100.00%** ⚠️ | 1.00 → 2.00ms | +100.00% |
+
+              **1 benchmark(s) above their gate:** `loop` +100.00% (gate 1%)
+            stderr: |
+              Error: 1 benchmark(s) regressed beyond their gate
+            want: regressed
+          # An empty comparison as newer tak reports it: non-zero exit.
+          - case: empty-comparison-nonzero-exit
+            exit: 1
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+            stderr: |
+              Error: nothing was compared: no series was measured on both a and b.
+            want: nothing-compared
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Create the fixture and the stand-in tak
+        id: fixture
+        env:
+          CASE_EXIT: ${{ matrix.exit }}
+          CASE_REPORT: ${{ matrix.report }}
+          CASE_STDERR: ${{ matrix.stderr }}
+        run: |
+          root="$RUNNER_TEMP/fixture"
+          head=$(test/fixture.sh init "$root")
+          mkdir -p "$RUNNER_TEMP/fake-tak"
+          printf '%s' "$CASE_REPORT" > "$RUNNER_TEMP/fake-tak/report"
+          printf '%s' "$CASE_STDERR" > "$RUNNER_TEMP/fake-tak/stderr"
+          echo "$CASE_EXIT" > "$RUNNER_TEMP/fake-tak/exit"
+          echo "$GITHUB_WORKSPACE/test/fake-tak" >> "$GITHUB_PATH"
+          {
+            echo "work=$root/work"
+            echo "head=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compare
+        id: compare
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          install: "false"
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.fixture.outputs.head }}
+          measure: "false"
+          fail-on-regression: "false"
+          fail-on-nothing-compared: "false"
+          artifact-name: tak-report-classify-${{ matrix.case }}
+
+      - name: Check the classification
+        env:
+          STATUS: ${{ steps.compare.outputs.status }}
+          WANT: ${{ matrix.want }}
+        run: |
+          echo "status=$STATUS want=$WANT"
+          test "$STATUS" = "$WANT"
 
   # actions/checkout v6 and later keep the token in a file under RUNNER_TEMP,
   # included from .git/config, rather than in .git/config itself. Check that

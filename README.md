@@ -346,18 +346,30 @@ Boolean inputs accept `true` or `false` and nothing else, so a typo cannot switc
 ## How the outcome is decided
 
 tak has no machine-readable comparison output yet, so the action classifies `tak compare` by
-its exit status and the text of its report. This is a stopgap until tak grows such an output.
+its exit status and by lines tak writes itself. This is a stopgap until tak grows such an
+output.
 
-- **nothing-compared**: the report starts with `**Nothing was compared`. This is checked first
-  and regardless of the exit status: released tak versions exit 0 for an empty comparison, and
-  newer ones may exit non-zero unless given `--allow-empty`. The action never passes that flag
-  and applies `fail-on-nothing-compared` itself, so both behave the same.
-- **pass**: exit status 0.
-- **regressed**: a non-zero exit status and the report's `benchmark(s) above the …% gate`
-  line (or `above their gate`, with per-benchmark gates).
+The report cannot be searched as a whole. It echoes text the pull request controls: benchmark
+names from its `tak.toml` and, in tak releases with trailer support, `Tak-Accept:` values from
+its commits. A start-of-line anchor is not enough either, because tak 0.0.13 writes a newline
+inside a benchmark name as a real newline, so a name can begin a line of its own. Each verdict
+is therefore read only where echoed text cannot reach:
+
+- **nothing-compared**: the report's *first line* is `**Nothing was compared, and so nothing was
+  gated.**`. tak writes that sentence before any name. This is checked whatever the exit
+  status: released tak versions exit 0 for an empty comparison, and newer ones exit non-zero
+  unless given `--allow-empty`. The action never passes that flag and applies
+  `fail-on-nothing-compared` itself, so both behave the same.
+- **pass**: exit status 0. No report text can produce it.
+- **regressed**: a non-zero exit, tak's `Error: N benchmark(s) regressed …` line on stderr
+  (which names a count and a threshold, never a benchmark), *and* the report's
+  `**N benchmark(s) above the …% gate` (or `above their gate`) line at the start of a line.
 - **error**: anything else, including a failed build, a moved `HEAD`, a failure before the
-  comparison, or a non-zero exit without that line. If tak ever rewords the gate line, a
+  comparison, or a non-zero exit without both regression signals. If tak ever rewords them, a
   regression lands here and still fails; it is not mistaken for a pass.
+
+Comment mode does not read the report text at all: it takes `status` from the artifact and
+accepts only the four values above.
 
 ## The report artifact
 
