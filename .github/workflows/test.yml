@@ -344,6 +344,18 @@ jobs:
           OUTCOME: ${{ steps.bad-input.outcome }}
         run: test "$OUTCOME" = failure
 
+  # The check-run conclusion comment mode chooses for each status and policy.
+  conclusions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: test/conclusions.sh
+
   # How compare mode classifies tak's output when that output carries text
   # imitating tak's own verdicts, as echoed benchmark names and Tak-Accept
   # trailer values can. A stand-in tak prints each canned case, so these do
@@ -505,6 +517,17 @@ jobs:
               **Nothing was compared, and so nothing was gated.** No series appears on both sides.
             stderr: ""
             want: nothing-compared
+          # A settings probe that fails is not taken as support: the empty
+          # comparison still fails under auto, with a warning naming the probe.
+          - case: probe-fails-auto
+            policy: auto
+            allow_empty_setting: fails
+            want_outcome: failure
+            exit: 0
+            report: |
+              **Nothing was compared, and so nothing was gated.** No series appears on both sides.
+            stderr: ""
+            want: nothing-compared
           # tak with the setting failed an empty comparison (allow_empty off at
           # the base): auto fails.
           - case: new-tak-empty-nonzero-auto
@@ -536,9 +559,10 @@ jobs:
           printf '%s' "$CASE_REPORT" > "$RUNNER_TEMP/fake-tak/report"
           printf '%s' "$CASE_STDERR" > "$RUNNER_TEMP/fake-tak/stderr"
           echo "$CASE_EXIT" > "$RUNNER_TEMP/fake-tak/exit"
-          if [ "$CASE_ALLOW_EMPTY_SETTING" = true ]; then
-            touch "$RUNNER_TEMP/fake-tak/allow-empty-setting"
-          fi
+          case "$CASE_ALLOW_EMPTY_SETTING" in
+            true) touch "$RUNNER_TEMP/fake-tak/allow-empty-setting" ;;
+            fails) touch "$RUNNER_TEMP/fake-tak/settings-fails" ;;
+          esac
           echo "$GITHUB_WORKSPACE/test/fake-tak" >> "$GITHUB_PATH"
           {
             echo "work=$root/work"

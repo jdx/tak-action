@@ -121,9 +121,17 @@ else
   # lists every setting by name at the start of a line. Run outside the
   # repository, so no tak.toml is read and nothing the pull request controls
   # can reach the output.
+  #
+  # A probe that fails is not the same answer as a tak without the setting,
+  # though both fall back to failing the empty comparison: say so, with tak's
+  # own last word, so that is not mistaken for an old tak.
   tak_has_allow_empty() {
-    local settings
-    settings=$(cd "${RUNNER_TEMP:?}" && tak settings 2>/dev/null) || return 1
+    local settings probe_rc=0 probe_err="$TAK_ACTION_DIR/settings.err"
+    settings=$(cd "${RUNNER_TEMP:?}" && tak settings 2>"$probe_err") || probe_rc=$?
+    if [ "$probe_rc" -ne 0 ]; then
+      warn "could not tell whether this tak has the allow_empty setting: 'tak settings' exited with status $probe_rc ($(tail -n1 "$probe_err")). Treating it as a tak without the setting, so this empty comparison is not treated as allowed"
+      return 1
+    fi
     grep -Eq '^allow_empty[[:space:]]' <<<"$settings"
   }
   if [ -z "$rc" ]; then

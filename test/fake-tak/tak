@@ -8,8 +8,12 @@ dir="${RUNNER_TEMP:?}/fake-tak"
 case "${1:-}" in
   --version) echo "tak 0.0.0-fake" ;;
   # Lists allow_empty, as tak releases with that setting do, only when the
-  # case says this stand-in is one of them.
+  # case says this stand-in is one of them; fails when the case says so.
   settings)
+    if [ -e "$dir/settings-fails" ]; then
+      echo "Error: settings probe failed on purpose" >&2
+      exit 3
+    fi
     echo "env_allow  list<string>"
     if [ -e "$dir/allow-empty-setting" ]; then
       echo "allow_empty  bool"

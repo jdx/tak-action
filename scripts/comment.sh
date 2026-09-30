@@ -100,30 +100,8 @@ fi
 # The trusted side decides what each outcome means for the check, not the
 # artifact: the compare job's inputs came from the pull request's copy of the
 # workflow.
-case "$status" in
-  pass)
-    conclusion=success
-    title="No instruction-count regression beyond the gate"
-    ;;
-  regressed)
-    conclusion=$([ "$(bool fail-on-regression "$INPUT_FAIL_ON_REGRESSION")" = true ] && echo failure || echo neutral)
-    title="An instruction count rose beyond the gate"
-    ;;
-  nothing-compared)
-    conclusion=$([ "$(nothing_compared_policy "$INPUT_FAIL_ON_NOTHING_COMPARED")" != false ] && echo failure || echo neutral)
-    title="Nothing was compared"
-    ;;
-  nothing-compared-allowed)
-    # Neutral, not success: the gate checked nothing, and a green check would
-    # read as if it had.
-    conclusion=$([ "$(nothing_compared_policy "$INPUT_FAIL_ON_NOTHING_COMPARED")" = true ] && echo failure || echo neutral)
-    title="Nothing was compared (allowed by allow_empty)"
-    ;;
-  *)
-    conclusion=failure
-    title="The comparison did not run"
-    ;;
-esac
+conclusion=$(check_conclusion "$status" "$INPUT_FAIL_ON_REGRESSION" "$INPUT_FAIL_ON_NOTHING_COMPARED")
+title=$(check_title "$status")
 output status "$status"
 output conclusion "$conclusion"
 echo "status=$status conclusion=$conclusion"
