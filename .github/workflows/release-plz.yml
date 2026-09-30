@@ -1,0 +1,40 @@
+name: release-plz
+
+# Opens or updates the `chore: release vX.Y.Z` pull request after every push
+# to main. Adapted from jdx/mise-action; see scripts/release/release-plz.sh.
+#
+# RELEASE_PLZ_GITHUB_TOKEN rather than GITHUB_TOKEN pushes the release branch
+# and opens the pull request, because GitHub runs no workflows for pull
+# requests created with GITHUB_TOKEN, and the release PR needs its checks.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-plz
+  cancel-in-progress: false
+
+jobs:
+  release-plz:
+    if: github.repository == 'jdx/tak-action'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_GITHUB_TOKEN }}
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: git-cliff gh
+      - run: mise run release-plz
+        env:
+          DRY_RUN: 0
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_GITHUB_TOKEN }}

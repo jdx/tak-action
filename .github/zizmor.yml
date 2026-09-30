@@ -1,0 +1,6 @@
+rules:
+  # zizmor recommends GitHub's `uses: $/` self-repository syntax, but
+  # actionlint (1.7.12, the latest) rejects it as a malformed action reference.
+  # Keep `uses: ./` until actionlint understands the new form, then switch.
+  self-repository:
+    disable: true

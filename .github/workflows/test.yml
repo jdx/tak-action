@@ -1,0 +1,396 @@
+name: test
+
+# Exercises the action end to end against a throwaway fixture repository whose
+# origin is a local bare repository, so record really pushes refs/notes/tak and
+# compare really fetches it, without writing to this repository.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TAK_VERSION: "0.0.13"
+
+jobs:
+  record-and-compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Create the fixture
+        id: fixture
+        run: |
+          root="$RUNNER_TEMP/fixture"
+          base=$(test/fixture.sh init "$root")
+          {
+            echo "root=$root"
+            echo "work=$root/work"
+            echo "base=$base"
+          } >> "$GITHUB_OUTPUT"
+
+      # --- record ------------------------------------------------------------
+
+      - name: Record the base
+        uses: ./
+        with:
+          mode: record
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+
+      - name: The notes reached origin
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+          BASE: ${{ steps.fixture.outputs.base }}
+        run: |
+          note=$(git -C "$ROOT/origin.git" notes --ref=tak show "$BASE")
+          echo "$note"
+          grep -q '"bench":"loop"' <<<"$note"
+          grep -q '"bench":"true"' <<<"$note"
+          grep -q '"instructions"' <<<"$note"
+
+      # --- compare: pass -----------------------------------------------------
+
+      - name: Commit a change that costs nothing
+        id: same
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+          WORK: ${{ steps.fixture.outputs.work }}
+        run: |
+          git -C "$WORK" checkout --quiet -b same
+          echo "sha=$(test/fixture.sh commit "$ROOT" 200 'same cost')" >> "$GITHUB_OUTPUT"
+
+      - name: Compare, expecting a pass
+        id: pass
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.same.outputs.sha }}
+          artifact-name: tak-report-pass
+
+      - name: Check the pass
+        env:
+          STATUS: ${{ steps.pass.outputs.status }}
+          REPORT: ${{ steps.pass.outputs.report }}
+          BASE_SHA: ${{ steps.pass.outputs.base-sha }}
+          HEAD_SHA: ${{ steps.pass.outputs.head-sha }}
+          WANT_BASE: ${{ steps.fixture.outputs.base }}
+          WANT_HEAD: ${{ steps.same.outputs.sha }}
+        run: |
+          test "$STATUS" = pass
+          test "$BASE_SHA" = "$WANT_BASE"
+          test "$HEAD_SHA" = "$WANT_HEAD"
+          grep -q 'No instruction-count regression' "$REPORT"
+
+      # --- compare: regression -----------------------------------------------
+
+      - name: Commit a regression
+        id: slow
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+          WORK: ${{ steps.fixture.outputs.work }}
+        run: |
+          git -C "$WORK" checkout --quiet -b slow main
+          echo "sha=$(test/fixture.sh commit "$ROOT" 5000 'ten times the loop')" >> "$GITHUB_OUTPUT"
+
+      - name: Compare, expecting a reported regression
+        id: regressed
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.slow.outputs.sha }}
+          fail-on-regression: "false"
+          artifact-name: tak-report-regressed
+
+      - name: Check the regression was reported
+        env:
+          STATUS: ${{ steps.regressed.outputs.status }}
+          REPORT: ${{ steps.regressed.outputs.report }}
+        run: |
+          test "$STATUS" = regressed
+          grep -q 'benchmark(s) above the' "$REPORT"
+
+      # For test-comment.yml, which runs comment mode against this pull
+      # request. Comment mode accepts a report only for the commit the
+      # triggering run was for, and the report above is for a fixture commit,
+      # so this test-only copy names the pull request's head instead. The
+      # action itself has no such override: in a real project the compare
+      # job measures the pull request's own head.
+      - name: Build the self-test report
+        if: github.event_name == 'pull_request'
+        env:
+          REPORT: ${{ steps.regressed.outputs.report }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          out="$RUNNER_TEMP/self-test-report"
+          cp -r "$(dirname "$REPORT")" "$out"
+          echo "$PR_HEAD_SHA" > "$out/head-sha"
+          echo "$PR_NUMBER" > "$out/pr-number"
+
+      - name: Upload the self-test report
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # The name test-comment.yml reads.
+          name: tak-report
+          path: ${{ runner.temp }}/self-test-report
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Compare with the default gate, expecting a failure
+        id: gated
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.slow.outputs.sha }}
+          measure: "false"
+          artifact-name: tak-report-gated
+
+      - name: Check the gate failed the step
+        env:
+          OUTCOME: ${{ steps.gated.outcome }}
+          STATUS: ${{ steps.gated.outputs.status }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$STATUS" = regressed
+
+      # --- compare: nothing compared -----------------------------------------
+
+      - name: Branch from a commit that was never recorded
+        id: unrecorded
+        env:
+          ROOT: ${{ steps.fixture.outputs.root }}
+          WORK: ${{ steps.fixture.outputs.work }}
+        run: |
+          git -C "$WORK" checkout --quiet main
+          test/fixture.sh commit "$ROOT" 200 'unrecorded' >/dev/null
+          git -C "$WORK" push --quiet origin main
+          git -C "$WORK" checkout --quiet -b unrecorded
+          echo "sha=$(test/fixture.sh commit "$ROOT" 200 'on an unrecorded base')" >> "$GITHUB_OUTPUT"
+
+      - name: Compare, expecting nothing compared
+        id: nothing
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+          artifact-name: tak-report-nothing
+
+      - name: Compare again, allowing nothing compared
+        id: nothing-allowed
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+          measure: "false"
+          fail-on-nothing-compared: "false"
+          artifact-name: tak-report-nothing-allowed
+
+      - name: Check nothing compared fails by default and passes when allowed
+        env:
+          OUTCOME: ${{ steps.nothing.outcome }}
+          STATUS: ${{ steps.nothing.outputs.status }}
+          ALLOWED_STATUS: ${{ steps.nothing-allowed.outputs.status }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$STATUS" = nothing-compared
+          test "$ALLOWED_STATUS" = nothing-compared
+
+      # --- guards ------------------------------------------------------------
+
+      - name: Compare the wrong commit
+        id: wrong-head
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.fixture.outputs.base }}
+          artifact-name: tak-report-wrong-head
+
+      # A failed prepare must not leave an earlier prepare's state for the
+      # compare step (which runs after failures) to reuse.
+      - name: Prepare correctly
+        uses: ./
+        with:
+          mode: prepare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+
+      - name: Then compare the wrong commit
+        id: stale
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.fixture.outputs.base }}
+          measure: "false"
+          fail-on-nothing-compared: "false"
+          artifact-name: tak-report-stale
+
+      - name: Run a failing build
+        id: failing-build
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+          run: exit 3
+          artifact-name: tak-report-failing-build
+
+      - name: Check each failed as an error, with a report
+        env:
+          WRONG_OUTCOME: ${{ steps.wrong-head.outcome }}
+          WRONG_STATUS: ${{ steps.wrong-head.outputs.status }}
+          STALE_OUTCOME: ${{ steps.stale.outcome }}
+          STALE_STATUS: ${{ steps.stale.outputs.status }}
+          BUILD_OUTCOME: ${{ steps.failing-build.outcome }}
+          BUILD_STATUS: ${{ steps.failing-build.outputs.status }}
+          BUILD_REPORT: ${{ steps.failing-build.outputs.report }}
+        run: |
+          test "$WRONG_OUTCOME" = failure
+          test "$WRONG_STATUS" = error
+          test "$STALE_OUTCOME" = failure
+          test "$STALE_STATUS" = error
+          test "$BUILD_OUTCOME" = failure
+          test "$BUILD_STATUS" = error
+          grep -q 'exited with status 3' "$BUILD_REPORT"
+
+      # 0.0.13 predates `tak compare --accept`. Naming a benchmark must fail
+      # the comparison, not be silently ignored.
+      - name: Accept with a tak that cannot
+        id: accept-unsupported
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: compare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: ${{ steps.fixture.outputs.work }}
+          base-ref: main
+          head-sha: ${{ steps.unrecorded.outputs.sha }}
+          measure: "false"
+          accept: |
+            loop
+          artifact-name: tak-report-accept-unsupported
+
+      - name: Check accept failed clearly
+        env:
+          OUTCOME: ${{ steps.accept-unsupported.outcome }}
+          STATUS: ${{ steps.accept-unsupported.outputs.status }}
+          REPORT: ${{ steps.accept-unsupported.outputs.report }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$STATUS" = error
+          grep -Fq 'has no' "$REPORT"
+          grep -Fq 'tak compare --accept' "$REPORT"
+
+      - name: Reject invalid input
+        id: bad-input
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: record
+          version: latest
+
+      - name: Check invalid input failed
+        env:
+          OUTCOME: ${{ steps.bad-input.outcome }}
+        run: test "$OUTCOME" = failure
+
+  # actions/checkout v6 and later keep the token in a file under RUNNER_TEMP,
+  # included from .git/config, rather than in .git/config itself. Check that
+  # prepare removes it in the layout the current checkout really produces.
+  strip-credentials:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: action
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: subject
+          fetch-depth: 0
+          # The point of this job: a checkout that did persist its token.
+          persist-credentials: true # zizmor: ignore[artipacked] the credentials are what is under test, and prepare removes them
+
+      - name: The checkout persisted a credential
+        working-directory: subject
+        run: |
+          git config --get-regexp '^http\..*\.extraheader$' >/dev/null
+          ls "$RUNNER_TEMP"/git-credentials-*.config
+
+      - name: Prepare
+        id: prepare
+        uses: ./action
+        with:
+          mode: prepare
+          version: ${{ env.TAK_VERSION }}
+          working-directory: subject
+          base-ref: main
+          head-sha: ""
+
+      - name: No credential remains
+        working-directory: subject
+        env:
+          BASE_SHA: ${{ steps.prepare.outputs.base-sha }}
+        run: |
+          if git config --get-regexp '^http\..*\.extraheader$'; then
+            echo "::error::a credential survived prepare"
+            exit 1
+          fi
+          if compgen -G "$RUNNER_TEMP/git-credentials-*.config"; then
+            echo "::error::a credentials file survived prepare"
+            exit 1
+          fi
+          test -n "$BASE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
