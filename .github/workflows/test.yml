@@ -25,7 +25,7 @@ env:
 
 jobs:
   record-and-compare:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -346,7 +346,7 @@ jobs:
 
   # The check-run conclusion comment mode chooses for each status and policy.
   conclusions:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -362,7 +362,7 @@ jobs:
   # not depend on a tak release that can produce them.
   classify:
     name: classify (${{ matrix.case }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -599,7 +599,7 @@ jobs:
   # included from .git/config, rather than in .git/config itself. Check that
   # prepare removes it in the layout the current checkout really produces.
   strip-credentials:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
