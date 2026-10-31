@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -24,8 +24,8 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          install_args: actionlint zizmor shellcheck
-      # actionlint, shellcheck and zizmor, the same as `mise run lint` locally.
+          install_args: jactionlint zizmor shellcheck
+      # jactionlint, shellcheck and zizmor, the same as `mise run lint` locally.
       # zizmor's online audits (impostor commits, stale pins) read the GitHub
       # API, so it gets the read-only token.
       - run: mise run lint

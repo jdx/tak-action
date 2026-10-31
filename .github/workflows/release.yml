@@ -10,6 +10,12 @@ on:
 
 permissions: {}
 
+# A release publishes tags, so a second run for the same pull request waits
+# rather than cancelling one that is partway through.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   release:
     if: >-
@@ -17,7 +23,7 @@ jobs:
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.labels.*.name, 'release')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: write # the vX.Y.Z and vX tags, and the GitHub release
@@ -40,7 +46,7 @@ jobs:
 
   enhance-release:
     needs: [release]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read

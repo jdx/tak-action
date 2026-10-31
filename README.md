@@ -437,7 +437,7 @@ releases of this action. The format is pre-v1 and may change.
 ## Development
 
 ```sh
-mise run lint    # actionlint, shellcheck, zizmor
+mise run lint    # jactionlint, shellcheck, zizmor
 ```
 
 `.github/workflows/test.yml` runs `record` and `compare` end to end against a throwaway fixture
