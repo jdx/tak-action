@@ -2,7 +2,7 @@
 # way. Linters are pinned: a new zizmor audit should arrive in a commit that
 # bumps it, not as a surprise red build on an unrelated change.
 [tools]
-actionlint = "1.7.12"
+jactionlint = "2.4.0"
 zizmor = "1.31.1"
 shellcheck = "0.11.0"
 # Release tooling, used only by the release workflows.
@@ -16,7 +16,7 @@ depends = ["lint:*"]
 
 [tasks."lint:actionlint"]
 description = "Check workflow syntax and expressions"
-run = "actionlint"
+run = "jactionlint"
 
 [tasks."lint:shellcheck"]
 description = "Check the action's shell scripts"

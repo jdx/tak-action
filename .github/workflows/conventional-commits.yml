@@ -13,6 +13,7 @@ concurrency:
 jobs:
   title:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check pull request title
         env:

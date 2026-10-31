@@ -10,6 +10,12 @@ on:
 
 permissions: {}
 
+# A release publishes tags, so a second run for the same pull request waits
+# rather than cancelling one that is partway through.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   release:
     if: >-
