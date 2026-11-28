@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - id: comment
-        uses: ./
+        uses: $/
         with:
           mode: comment
           # The fixture's regression is deliberate; report it without failing.

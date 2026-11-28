@@ -50,7 +50,7 @@ jobs:
       # --- record ------------------------------------------------------------
 
       - name: Record the base
-        uses: ./
+        uses: $/
         with:
           mode: record
           version: ${{ env.TAK_VERSION }}
@@ -80,7 +80,7 @@ jobs:
 
       - name: Compare, expecting a pass
         id: pass
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -116,7 +116,7 @@ jobs:
 
       - name: Compare, expecting a reported regression
         id: regressed
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -166,7 +166,7 @@ jobs:
       - name: Compare with the default gate, expecting a failure
         id: gated
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -201,7 +201,7 @@ jobs:
       - name: Compare, expecting nothing compared
         id: nothing
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -212,7 +212,7 @@ jobs:
 
       - name: Compare again, allowing nothing compared
         id: nothing-allowed
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -238,7 +238,7 @@ jobs:
       - name: Compare the wrong commit
         id: wrong-head
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -250,7 +250,7 @@ jobs:
       # A failed prepare must not leave an earlier prepare's state for the
       # compare step (which runs after failures) to reuse.
       - name: Prepare correctly
-        uses: ./
+        uses: $/
         with:
           mode: prepare
           version: ${{ env.TAK_VERSION }}
@@ -261,7 +261,7 @@ jobs:
       - name: Then compare the wrong commit
         id: stale
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -275,7 +275,7 @@ jobs:
       - name: Run a failing build
         id: failing-build
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -308,7 +308,7 @@ jobs:
       - name: Accept with a tak that cannot
         id: accept-unsupported
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           version: ${{ env.TAK_VERSION }}
@@ -334,7 +334,7 @@ jobs:
       - name: Reject invalid input
         id: bad-input
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: record
           version: latest
@@ -572,7 +572,7 @@ jobs:
       - name: Compare
         id: compare
         continue-on-error: true
-        uses: ./
+        uses: $/
         with:
           mode: compare
           install: "false"
